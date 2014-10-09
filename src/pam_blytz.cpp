@@ -130,8 +130,6 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 	// check if current user has a blytz token 
 	has_blytz = blytz_has_pkey();
 
-	// return PAM_SUCCESS;
-
 	std::string stored_pkey;
 
 	if (has_blytz) {
@@ -147,9 +145,12 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 		// attempt to authenticate user via unix_pam 
 		ret = pam_unix_auth(pamh, flags, argc, argv);
 
+		if (ret != PAM_SUCCESS) {
+			return PAM_AUTH_ERR;
+		}
+
 		// user is authenticated, create blytz token
 		pam_mprintf_d("Login successful, generating BLYTZ Login Token");
-		//PAM_LOG("User authenticated, generating Blytz token");
 
 		std::string key = blytz_create_key();
 		if (key == NO_KEY) {
@@ -523,29 +524,30 @@ std::string blytz_create_key() {
 	// save to BLYTZ key location
 	std::string sshdir = get_sshdir();
 
+	// public key
 	char *buf;
   res = ssh_pki_export_pubkey_base64( nkey, &buf);
 	if (res != SSH_OK) {
 		pam_mprintf_d("Error saving public key");
 		return NO_KEY;
 	}
-	// TODO: output
 
+	std::ofstream pubkeyfile;
+	pubkeyfile.open((sshdir + "/blytzkey.pub"));
+
+	if (pubkeyfile.is_open()) {
+		pubkeyfile << buf;
+	}
+
+	pubkeyfile.close();
 	free(buf);
 
+	// private key
 	res = ssh_pki_export_privkey_file( nkey, NULL, NULL, NULL, 
 			(sshdir + "/blytzkey").c_str());
 
-
-	/*
-	// execute ssh-keygen
-	std::stringstream sts;
-	sts << "ssh-keygen -f " << sshdir << "blytzkey -P \"\" -C \"\"";
-	std::string keygen_cmd = sts.str();
-
-	pam_mprintf_d(keygen_cmd.c_str());
-	std::system(keygen_cmd.c_str());
-	*/
+	// fix permissions
+	chmod( (sshdir + "/blytzkey").c_str(), S_IRUSR | S_IWUSR);
 
 	std::string key;
 	if (blytz_has_pkey()) {

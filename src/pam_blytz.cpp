@@ -4,8 +4,8 @@
  * (insert foo here)
  */
 
-#include <string.h>
 #include <unistd.h>
+#include <time.h>
 
 #ifdef __FreeBSD__
 #include <login_cap.h>
@@ -33,6 +33,10 @@
 #endif
 
 #include <libssh/libssh.h>
+#include <libssh/callbacks.h>
+/*
+#include <openssh/key.h>
+*/
 
 // c++
 #include <iostream>
@@ -41,6 +45,8 @@
 #include <vector>
 #include <fstream>
 #include <cstdlib>
+
+#include <string.h>
 
 #include "helpers.h"
 #include "pam_blytz_printf.h"
@@ -74,6 +80,8 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 	int ret;
 	int has_blytz = 0;
 
+	pam_mprintf_d("hehe");
+
 	// get user information
 	struct passwd *pwd;
 	ret = pam_get_user(pamh, &user, NULL);
@@ -89,7 +97,7 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 	char hostname[256] = {0};
 
 	// zero fill in case the hostname gets truncated
-	memset( hostname, 0, 256);
+	memset(hostname, 0, 256);
 	gethostname(hostname, 256);
 
 	pam_mprintf_d("Hostname: %s", hostname);
@@ -127,12 +135,35 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 	// show it so the user may scan it
 	pam_mprintf(PAM_PROMPT_ECHO_OFF, "%s", qrcode);
 
-	// check if current user has a blytz token 
+	pam_mprintf_d("Waiting for connection...");
+
+	int cnt = 0;
+	const int maxcnt = 10;
+
+	// wait for useful response from server
+	while (!has_connection()) {
+		sleep(1);
+
+		if (cnt++ >= 10) {
+			pam_mprintf_d("Timeout");
+			return PAM_SYSTEM_ERR;
+		}
+	}
+
+	pam_mprintf_d("Has connection to BLYTZ app");
+
+	// check if current user has a blytz token (on the pam server)
 	has_blytz = blytz_has_pkey();
 
 	std::string stored_pkey;
 
-	if (has_blytz) {
+	if (has_credentials()) {
+
+		if (!has_blytz) {
+			pam_mprintf(PAM_PROMPT_ECHO_OFF, "%s", 
+					"Error: No credentials stored in app");
+			return PAM_SYSTEM_ERR;
+		}
 
 		// fetch the pkey
 		stored_pkey = blytz_get_pkey();
@@ -156,86 +187,52 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 		if (key == NO_KEY) {
 			return PAM_SYSTEM_ERR;
 		}
-
-		// // prepare rest call
-		// std::string creds;
-		// std::stringstream sts;
-		// sts << "{\n\"username\":\"" << user << "\",\n\"password\":\"" <<
-		// 	key << "\",\n\"status\":\"widgetsetcredentials\"\n}";
-		// creds = sts.str();
-
-		// pam_mprintf_d("%s", creds.c_str());
-
+		
 		// send to blytz server (-> app)
 		pam_mprintf_d("Doing rest call: /credentials/set");
-		//conn_str = blytz_server + "/credentials/set";
-		//res = restclient.post( conn_str.c_str(), "application/json", creds.c_str());
-		//res = rest_post( conn_str, creds);
-		retv = set_credentials(user,key.c_str());
+		retv = set_credentials(user, key.c_str());
+		pam_mprintf_d("set_credentials() returned");
 
 		if (retv.error != OK) {
 			pam_mprintf_d(("Error transferring key to BLYTZ Server: %d" + 
 						std::string(retv.message)).c_str());
 			// cleanup on error
 			unlink((get_sshdir() + "blytzkey.pub").c_str());
+			return PAM_SYSTEM_ERR;
+		}
+
+		int cnt1 = 0;
+		while (!has_credentials()) {
+			if (cnt1++ == 10) {
+				pam_mprintf_d(("Error transferring key to BLYTZ App: %d" + 
+							std::string(retv.message)).c_str());
+				// cleanup on error
+				unlink((get_sshdir() + "blytzkey.pub").c_str());
+				return PAM_SYSTEM_ERR;
+			}
+			sleep(1);
 		}
 
 		// get pkey
 		stored_pkey = blytz_get_pkey();
-		pam_end(pamh, ret);
 	}
 
 	// at this point, a blytz token (=pkey) exists, continue with blytz login
 
 	// check if the blytz server already returned some credentials
 	pam_mprintf_d("Doing rest call: /credentials/get");
-	//conn_str = blytz_server + "/credentials/get";
-	//res = restclient.get(conn_str.c_str());
-	//rest_post(conn_str
-	//res = rest_get(conn_str);
-	//retv = get_credentials();
 	
-	/*
-	retv = get_password();
-
-	if (retv.error != OK) {
-			pam_mprintf_d(("Rest call failed: %d\n" + 
-						std::string(retv.message)).c_str(), retv.error);
-			return PAM_SYSTEM_ERR;
-	}
-
-	pam_mprintf_d("Response body: %s", body.c_str());
-	*/
-
 	retv = get_password();
 	std::string body = retv.message;
 
-	// wait for useful response from blytz server
-	const int maxcnt = 10;
-	int cnt = 0;
+	cnt = 0;
 
 	//while (body.find("false") != std::string::npos) {
 	while (!has_credentials()) {
 
 		pam_mprintf_d("No credentials yet");
 
-		sleep(3);
-		/*
-		//res = restclient.get(conn_str.c_str());
-		//res = rest_get(conn_str);
-		//retv = get_credentials();
-		retv = get_password();
-		body = retv.message;
-
-		if (retv.error != OK) {
-			pam_mprintf_d(("Rest call failed: %d" + 
-						std::string(retv.message)).c_str());
-			return PAM_SYSTEM_ERR;
-		}
-
-		//pam_mprintf_d("Response body: %s", body.c_str());
-		pam_mprintf_d("Response body: %s", retv.message);
-		*/
+		sleep(1);
 
 		if (cnt++ >= 10) {
 			pam_mprintf_d("Timeout");
@@ -248,6 +245,7 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 	pam_mprintf_d("Key from server: %s\n", key.c_str());
 
 	std::string pkey = get_pkey_from_key(key);
+
 	if (pkey == NO_KEY) {
 		pam_mprintf_d("Could not get key");
 		return PAM_SYSTEM_ERR;
@@ -274,24 +272,26 @@ std::string parse_key(std::string body) {
 
 	std::string key;
 
-	std::stringstream body_stream;
-	body_stream.str(body);
+	key = body;
 
-	// look for key in server response (in json "password" kv pair)
-	std::string line;
-	while (!body_stream.eof()) {
-		std::getline(body_stream, line);
+	// std::stringstream body_stream;
+	// body_stream.str(body);
 
-		pam_mprintf_d("%s\n", line.c_str());
+	// // look for key in server response (in json "password" kv pair)
+	// std::string line;
+	// while (!body_stream.eof()) {
+	// 	std::getline(body_stream, line);
 
-		size_t pos;
-		if ((pos = line.find("password")) != std::string::npos) {
-			size_t startpos = line.find_first_of("\"", pos);
-			size_t endpos = line.find_last_of("\"");
-			key = line.substr(startpos + 4, endpos - startpos - 4);
-			pam_mprintf_d("Found key: %d - %d : %s\n", startpos, endpos, key.c_str());
-		}
-	}
+	// 	// pam_mprintf_d("%s\n", line.c_str());
+
+	// 	// size_t pos;
+	// 	// if ((pos = line.find("password")) != std::string::npos) {
+	// 	// 	size_t startpos = line.find_first_of("\"", pos);
+	// 	// 	size_t endpos = line.find_last_of("\"");
+	// 	// 	key = line.substr(startpos + 4, endpos - startpos - 4);
+	// 	// 	pam_mprintf_d("Found key: %d - %d : %s\n", startpos, endpos, key.c_str());
+	// 	// }
+	// }
 
 	// erase response body
 	body.clear();
@@ -307,11 +307,33 @@ std::string get_pkey_from_key(std::string key) {
 	
 	std::string sshdir = get_sshdir();
 
+	/*
+	Key *pkey, *pubkey;
+	pkey = key_new(KEY_RSA);
+	//pubkey = key_new(KEY_RSA);
+
+	char *tmp = (char *) calloc(1, key.size() + 1);
+	strcpy( tmp, key.c_str());
+	key_read(pkey, (char **)&tmp);
+
+	pubkey = key_demote(pkey);
+
+	FILE *f = fopen("/tmp/hehekey.pub", "w");
+	key_write(pubkey, f);
+	fclose(f);
+	*/
+
 	ssh_key pkey;
 	ssh_key pubkey;
 
+	pam_mprintf_d("hehe1");
+	pam_mprintf_d(key.c_str());
+
 	int res = ssh_pki_import_privkey_base64( key.c_str(), 
 			NULL, NULL, NULL, &pkey);
+
+	pam_mprintf_d("hehe2");
+	
 	if (res != SSH_OK) {
 		pam_mprintf_d("Error importing private key");
 		return NO_KEY;
@@ -383,7 +405,8 @@ std::string get_pkey_from_key(std::string key) {
 	pubkey += " ";
 	*/
 
-	return pubkey_str;
+	//return pubkey_str;
+	return NO_KEY;
 }
 
 bool find_key_in_pkeys(std::string key) {
@@ -507,10 +530,8 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 
 std::string blytz_create_key() {
 
-
 	ssh_key nkey;
 	int res;
-
 
 	// create public/private key pair
 	res = ssh_pki_generate( SSH_KEYTYPE_RSA, 2048, &nkey);
@@ -533,7 +554,7 @@ std::string blytz_create_key() {
 	}
 
 	std::ofstream pubkeyfile;
-	pubkeyfile.open((sshdir + "/blytzkey.pub"));
+	pubkeyfile.open((sshdir + "/blytzkey.pub").c_str());
 
 	if (pubkeyfile.is_open()) {
 		pubkeyfile << buf;
@@ -589,6 +610,8 @@ std::string blytz_create_key() {
 		return NO_KEY;
 	}
 
+	return NO_KEY;
+
 }
 
 std::string get_homedir() {
@@ -637,10 +660,10 @@ bool blytz_has_pkey() {
 
 	if (blytzfile.is_open())  {
 		blytzfile.close();
-		pam_mprintf_d("Has token");
+		pam_mprintf_d("Has local token");
 		return true;
 	} else {
-		pam_mprintf_d("Has no token");
+		pam_mprintf_d("Has no local token");
 		return false;
 	}
 }
@@ -650,18 +673,6 @@ std::string blytz_get_pkey() {
 
 	std::string pkeyfilename = blytz_get_filename();
 
-	/*
-	pkeyfile.open(pkeyfilename.c_str());
-
-	if (pkeyfile.is_open()) {
-
-		std::getline(pkeyfile, pkey);
-
-		//pam_mprintf_d("_get_pkey: %s", pkey.c_str());
-
-		pkeyfile.close();
-	}
-	*/
 	std::ifstream in(pkeyfilename.c_str());
 	std::string pkey((std::istreambuf_iterator<char>(in)), 
 			std::istreambuf_iterator<char>());

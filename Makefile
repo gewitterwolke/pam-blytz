@@ -4,7 +4,7 @@ LDFLAGS=$(LDPATHS)
 PAMLDFLAGS=-lpam
 CCPATHS=-I/usr/local/include -I./include -I/usr/src/crypto -I../libblytz
 DEBUG= -g
-CC=g++48
+CC=clang++
 
 all: pam_blytz.so
 install: pam_blytz.so

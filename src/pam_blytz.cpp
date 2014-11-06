@@ -34,9 +34,6 @@
 
 #include <libssh/libssh.h>
 #include <libssh/callbacks.h>
-/*
-#include <openssh/key.h>
-*/
 
 // c++
 #include <iostream>
@@ -80,8 +77,6 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 	int ret;
 	int has_blytz = 0;
 
-	pam_mprintf_d("hehe");
-
 	// get user information
 	struct passwd *pwd;
 	ret = pam_get_user(pamh, &user, NULL);
@@ -117,7 +112,7 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 	retv = init();
 
 	if (retv.error != OK) {
-		pam_mprintf_d(("Error in init:" + std::string(retv.message)).c_str());
+		pam_mprintf_d(("Error in init: " + std::string(retv.message)).c_str());
 		return PAM_SYSTEM_ERR;
 	}
 
@@ -307,22 +302,6 @@ std::string get_pkey_from_key(std::string key) {
 	
 	std::string sshdir = get_sshdir();
 
-	/*
-	Key *pkey, *pubkey;
-	pkey = key_new(KEY_RSA);
-	//pubkey = key_new(KEY_RSA);
-
-	char *tmp = (char *) calloc(1, key.size() + 1);
-	strcpy( tmp, key.c_str());
-	key_read(pkey, (char **)&tmp);
-
-	pubkey = key_demote(pkey);
-
-	FILE *f = fopen("/tmp/hehekey.pub", "w");
-	key_write(pubkey, f);
-	fclose(f);
-	*/
-
 	ssh_key pkey;
 	ssh_key pubkey;
 
@@ -405,8 +384,7 @@ std::string get_pkey_from_key(std::string key) {
 	pubkey += " ";
 	*/
 
-	//return pubkey_str;
-	return NO_KEY;
+	return pubkey_str;
 }
 
 bool find_key_in_pkeys(std::string key) {
@@ -530,8 +508,8 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 
 std::string blytz_create_key() {
 
-	ssh_key nkey;
 	int res;
+	ssh_key nkey;
 
 	// create public/private key pair
 	res = ssh_pki_generate( SSH_KEYTYPE_RSA, 2048, &nkey);

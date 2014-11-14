@@ -334,56 +334,6 @@ std::string get_pkey_from_key(std::string key) {
 	std::string pubkey_str(buf);
 	free(buf);
 
-	/*
-	// temporary write key to disk
-	std::string tmpkeyfile = sshdir + "tmpkey";
-	std::ofstream keyfile;
-	keyfile.open(tmpkeyfile.c_str());
-
-	if (keyfile.is_open()) {
-		
-		keyfile << key;
-		keyfile.close();
-	}
-
-	// fix permissions
-	chmod( tmpkeyfile.c_str(), S_IRUSR | S_IWUSR);
-	pam_mprintf_d("tmp key written to disk");
-
-	// execute ssh-keygen
-	std::stringstream sts;
-	sts << "ssh-keygen -y -f " << sshdir << "tmpkey > " << 
-		sshdir << "tmppublickey";
-	std::string create_pkey_cmd = sts.str();
-	std::system(create_pkey_cmd.c_str());
-
-	pam_mprintf_d("tmp pkey written to disk");
-	
-	// erase private key
-	unlink( (sshdir + "tmpkey").c_str());
-	key.clear();
-	
-	// read public key from file
-	std::string pubkey;
-	std::ifstream pubkeyfile;
-	pubkeyfile.open( (sshdir + "tmppublickey").c_str());
-
-	if (pubkeyfile.is_open()) {
-
-		std::getline(pubkeyfile, pubkey);
-
-		pubkeyfile.close();
-	}
-
-	pam_mprintf_d("Got converted public key");
-
-	// erase public key
-	unlink( (sshdir + "tmppublickey").c_str());
-
-	// FIXME: ?
-	pubkey += " ";
-	*/
-
 	return pubkey_str;
 }
 
@@ -569,7 +519,6 @@ std::string blytz_create_key() {
 
 		// append new public key at the end of authorized_keys to enable login
 		// with the corresponding private key
-
 		std::string pkey = blytz_get_pkey();
 
 		// FIXME: ssh-keygen adds an extra ' '?

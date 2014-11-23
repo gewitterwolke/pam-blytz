@@ -1,3 +1,6 @@
+#include <string>
+#include <vector>
+
 int pam_unix_auth(pam_handle_t *pamh, int flags,
     int argc, const char *argv[]);
 

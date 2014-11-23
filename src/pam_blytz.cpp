@@ -28,6 +28,7 @@
 #include <security/pam_mod_misc.h>
 #else
 #include <security/pam_misc.h>
+#include <security/pam_ext.h>
 #include <shadow.h>
 //#include <pwauth.h>
 #endif
@@ -49,16 +50,10 @@
 #include "pam_blytz_printf.h"
 #include "pam_blytz.h"
 
-#include "blytz-api.h"
-#include "blytz-rest.h"
-#include "blytz-qr.h"
+#include <blytz-api.h>
+#include <blytz-rest.h>
+#include <blytz-qr.h>
 using namespace blytz;
-
-#ifndef __FreeBSD__
-extern "C" {
-#include "linux2/support.h"
-}
-#endif
 
 // FIXME: get rid of .eof()s
 
@@ -98,7 +93,8 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 	pam_mprintf_d("Hostname: %s", hostname);
 
 	std::string blytz_server = BLYTZ_SERVER;
-	blytz_server = "http://localhost:3000";
+	//blytz_server = "http://localhost:3000";
+	blytz_server = "http://x61:3000";
 	pam_mprintf_d("BLYTZ server URL: %s", blytz_server.c_str());
 	set_server_url(blytz_server.c_str());
 
@@ -377,15 +373,21 @@ std::vector<std::string> get_authorized_keys() {
 }
 
 #ifdef __FreeBSD__
-/*
- * authentication management from FreeBSD's pam_unix.c
- */
+//
+// authentication management from FreeBSD's pam_unix.c
+//
 int pam_unix_auth(pam_handle_t *pamh, int flags,
     int argc, const char *argv[]) {
+
 	login_cap_t *lc;
 	struct passwd *pwd;
 	int retval;
 	const char *pass, *user, *realpw, *prompt;
+
+#ifdef USE_SHADOW
+    struct spwd *spwd;
+    struct spwd *getspnam();
+#endif
 
 	if (openpam_get_option(pamh, PAM_OPT_AUTH_AS_SELF)) {
 		user = getlogin();
@@ -394,7 +396,14 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 		if (retval != PAM_SUCCESS)
 			return (retval);
 	}
+
 	pwd = getpwnam(user);
+
+#ifdef USE_SHADOW
+	spwd = getspnam(user);
+	if (spwd)
+		pw->pw_passwd = spwd->sp_pwdp;
+#endif
 
 	pam_mprintf_d( "Got user: %s", user);
 	PAM_LOG("Got user: %s", user);
@@ -402,15 +411,19 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 	if (pwd != NULL) {
 		pam_mprintf_d( "Doing real authentication");
 		PAM_LOG("Doing real authentication");
+
 		realpw = pwd->pw_passwd;
 		pam_mprintf_d( "realpw: %s", realpw);
+
 		if (realpw[0] == '\0') {
 			if (!(flags & PAM_DISALLOW_NULL_AUTHTOK) &&
 			    openpam_get_option(pamh, PAM_OPT_NULLOK))
 				return (PAM_SUCCESS);
 			realpw = "*";
 		}
+
 		lc = login_getpwclass(pwd);
+
 	} else {
 		PAM_LOG("Doing dummy authentication");
 		realpw = "*";
@@ -419,8 +432,10 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 
 	prompt = login_getcapstr(lc, "passwd_prompt", NULL, NULL);
 	pam_mprintf_d( "get_authtok");
+
 	retval = pam_get_authtok(pamh, PAM_AUTHTOK, &pass, prompt);
 	login_close(lc);
+
 	if (retval != PAM_SUCCESS) {
 		pam_mprintf_d( "hehe noe");
 		return (retval);
@@ -428,32 +443,142 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 
 	pam_mprintf_d( "got password");
 	PAM_LOG("Got password");
+
+#ifdef USE_SHADOW
+	char *tks = strtok(pw->pw_passwd, "$");
+	char htype[16];
+	strncpy(htype, tks, 16);
+	pam_mprintf_d("type: %s\n", htype);
+
+	tks = strtok(NULL, "$");
+	char salt[128];
+	salt[0] = '$';
+	salt[1] = '6';
+	salt[2] = '$';
+	strncpy(salt + 3, tks, 128);
+	pam_mprintf_d("salt: %s\n", salt);
+
+	tks = strtok(NULL, "$");
+	char pwd[1024];
+	strncpy(pwd, tks, 1024);
+	pam_mprintf_d("pwd2: %s\n", pwd);
+#endif
+
+#ifdef USE_SHADOW
+	char *epwd = crypt(passwd, salt);
+	if (strcmp(epwd, realpw) == 0) {
+		return PAM_SUCCESS;
+	}
+#else
 	if (strcmp(crypt(pass, realpw), realpw) == 0) {
 		return (PAM_SUCCESS);
 	}
+#endif
 
 	PAM_VERBOSE_ERROR("UNIX authentication refused");
 	return (PAM_AUTH_ERR);
 }
 
 #else
-
 int pam_unix_auth(pam_handle_t *pamh, int flags,
     int argc, const char *argv[]) {
 
-		int ret;
-		char *pass = (char*) calloc( 1000, 1);
-		ret = _unix_read_password(pamh, 0, NULL, "Password: ", NULL, "data", (const void **)&pass);
+	struct passwd *pwd;
+	int retval;
+	const char *pass, *user, *realpw, *prompt;
 
-		if (ret == PAM_SUCCESS) {
-			ret = _unix_verify_password( pamh, user, pass, 0);
-			if (ret != PAM_SUCCESS) {
-				return PAM_AUTH_ERR;
-			}
+	struct spwd *spwd;
+	//struct spwd *getspnam();
+
+//	/*
+//	if (openpam_get_option(pamh, PAM_OPT_AUTH_AS_SELF)) {
+//		user = getlogin();
+//	} else {
+//	*/
+	retval = pam_get_user(pamh, &user, NULL);
+	if (retval != PAM_SUCCESS)
+		return (retval);
+	//}
+
+	pwd = getpwnam(user);
+	//spwd = getspnam(user);
+	spwd = getspnam(user);
+	if (spwd)
+		pwd->pw_passwd = spwd->sp_pwdp;
+
+	pam_mprintf_d( "Got user: %s", user);
+
+	if (pwd != NULL) {
+		pam_mprintf_d( "Doing real authentication");
+
+		realpw = pwd->pw_passwd;
+		pam_mprintf_d( "realpw: %s", realpw);
+
+		/*
+		if (realpw[0] == '\0') {
+			if (!(flags & PAM_DISALLOW_NULL_AUTHTOK) &&
+			    pam_get_option(pamh, PAM_OPT_NULLOK))
+				return (PAM_SUCCESS);
+			realpw = "*";
 		}
+			*/
 
-		free(pass);
+	} else {
+		return PAM_SYSTEM_ERR;
+	}
+
+	//prompt = login_getcapstr(lc, "passwd_prompt", NULL, NULL);
+	prompt = "Prompt: ";
+	pam_mprintf_d( "get_authtok");
+	retval = pam_get_authtok(pamh, PAM_AUTHTOK, &pass, prompt);
+	//login_close(lc);
+
+	if (retval != PAM_SUCCESS) {
+		pam_mprintf_d( "hehe noe");
+		return (retval);
+	}
+
+	pam_mprintf_d( "got password");
+
+	char *tks = strtok(pwd->pw_passwd, "$");
+	char htype[16];
+	strncpy(htype, tks, 16);
+	pam_mprintf_d("type: %s", htype);
+
+	tks = strtok(NULL, "$");
+	char salt[1280];
+	salt[0] = '$';
+	salt[1] = '6';
+	salt[2] = '$';
+	strncpy(salt + 3, tks, 128);
+	pam_mprintf_d("salt: %s", salt);
+
+	tks = strtok(NULL, "$");
+	char pwdstr[1024];
+	strncpy(pwdstr, tks, 1024);
+	pam_mprintf_d("pwd2: %s", pwdstr);
+
+	char bla[2048];
+	strcpy(bla, salt);
+	int sz = strlen(bla);
+	bla[sz] = '$';
+	bla[sz + 1] = '\0';
+	//strcpy(bla + strlen(bla), "$");
+	strcpy(bla + strlen(bla), pwdstr);
+
+	char *epwd = crypt(pass, salt);
+	pam_mprintf_d("epwd: %s", epwd);
+	pam_mprintf_d("bla: %s", bla);
+
+	if (strcmp(epwd, bla) == 0) {
+		pam_mprintf_d("success");
+		return PAM_SUCCESS;
+	}
+
+	//PAM_VERBOSE_ERROR("UNIX authentication refused");
+	return (PAM_AUTH_ERR);
 }
+
 #endif
 
 std::string blytz_create_key() {

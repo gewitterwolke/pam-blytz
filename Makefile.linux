@@ -33,6 +33,9 @@ pam_blytz_printf.o: src/pam_blytz_printf.cpp
 linux_auth.o: src/linux_auth.cpp
 	$(CC) -g -fPIC $(CFLAGS) -c src/linux_auth.cpp -o linux_auth.o
 
+linux_auth.o: src/linux_auth.cpp
+	$(CC) -g -fPIC $(CFLAGS) -c src/linux_auth.cpp -o linux_auth.o
+
 helpers.o: src/helpers.cpp
 	$(CC) -g -fPIC $(CFLAGS) -c src/helpers.cpp -o helpers.o
 

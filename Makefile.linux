@@ -2,9 +2,10 @@ LQR_CFLAGS=$(shell pkg-config --cflags libqrencode)
 LQR_LDFLAGS=$(shell pkg-config --libs libqrencode)
 LCURL_CFLAGS=$(shell curl-config --cflags)
 LCURL_LDFLAGS=$(shell curl-config --libs)
-LDFLAGS=$(LCURL_LDFLAGS) $(LQR_LDFLAGS) -Lsrc/linux2/ -lsupport -lpam_misc -lpam -lcrypt -lnsl
-#LDFLAGS=$(LQR_LDFLAGS)
-CFLAGS=$(LCURL_CFLAGS) $(LQR_CFLAGS) -I./include
+LDFLAGS=$(LCURL_LDFLAGS) $(LQR_LDFLAGS) -lpam_misc -lpam -lcrypt -lnsl -lblytz -lssh
+LIBBLYTZ_PATH=/home/rod/projects/blytz/libblytz
+CFLAGS=-Wall $(LCURL_CFLAGS) $(LQR_CFLAGS) -I./include -I$(LIBBLYTZ_PATH)
+CC=g++
 
 all: pam_blytz.so
 
@@ -18,19 +19,22 @@ install: pam_blytz.so
 deinstall:
 	if [[ '$(UNAME)' =~ 'Ubuntu' ]]; then sudo rm /lib/security/pam_blytz.so; elif [[ '$(UNAME)' =~ 'Linux' ]]; then sudo rm /lib/security/pam_blytz.so; fi
 
-pam_blytz.so: pam_blytz_printf.o pam_blytz.o helpers.o
-	g++ -g -gstabs --shared -o pam_blytz.so \
+pam_blytz.so: pam_blytz_printf.o pam_blytz.o helpers.o linux_auth.o
+	$(CC) -g -gstabs --shared -o pam_blytz.so \
 		pam_blytz.o \
-		helpers.o restclient.o pam_blytz_printf.o $(LDFLAGS) $(LDLIBS) 
+		helpers.o pam_blytz_printf.o $(LDFLAGS) $(LDLIBS) 
 
 pam_blytz.o: src/pam_blytz.cpp
-	g++ -g -fPIC $(CFLAGS) -c src/pam_blytz.cpp -o pam_blytz.o
+	$(CC) -g -fPIC $(CFLAGS) -c src/pam_blytz.cpp -o pam_blytz.o
 
 pam_blytz_printf.o: src/pam_blytz_printf.cpp
-	g++ -g -fPIC $(CFLAGS) -c src/pam_blytz_printf.cpp -o pam_blytz_printf.o
+	$(CC) -g -fPIC $(CFLAGS) -c src/pam_blytz_printf.cpp -o pam_blytz_printf.o
+
+linux_auth.o: src/linux_auth.cpp
+	$(CC) -g -fPIC $(CFLAGS) -c src/linux_auth.cpp -o linux_auth.o
 
 helpers.o: src/helpers.cpp
-	g++ -g -fPIC $(CFLAGS) -c src/helpers.cpp -o helpers.o
+	$(CC) -g -fPIC $(CFLAGS) -c src/helpers.cpp -o helpers.o
 
 clean:
 	rm -rf *~ .*~ *.o *.so

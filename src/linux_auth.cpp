@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "linux_auth.h"
-#include "pam_blyt_printf.h"
+#include "pam_blytz_printf.h"
 
 bool is_auth(char *user, char *pass) {
 
@@ -32,7 +32,7 @@ char *get_pwd_from_shadow(char *user) {
 	if (spwd) {
 		pw->pw_passwd = spwd->sp_pwdp;
 	} else {
-		pam_mprintf("Error getting shadowed password for user %s\n", user);
+		pam_mprintf_d("Error getting shadowed password for user %s\n", user);
 		return NULL;
 	}
 
@@ -56,7 +56,7 @@ char *get_pwd_from_shadow(char *user) {
 bool split_shadowed_pwd(char *shadowed_pwd, char **out) {
 	if (shadowed_pwd == NULL || strlen(shadowed_pwd) < 5 || 
 			strstr(shadowed_pwd, "$") == NULL) {
-		pam_mprintf("Malformed shadowed password\n");
+		pam_mprintf_d("Malformed shadowed password\n");
 		return false;
 	}
 
@@ -77,7 +77,7 @@ bool split_shadowed_pwd(char *shadowed_pwd, char **out) {
 
 	// get salt token and copy the has type as well as the salt to the result
 	// buffer
-	char *tok = strtok(NULL, "$");
+	tok = strtok(NULL, "$");
 	if (tok == NULL) {
 		goto tokerr;
 	}
@@ -87,7 +87,7 @@ bool split_shadowed_pwd(char *shadowed_pwd, char **out) {
 	strncpy(out[1] + len + 1, tok, SALT_LEN);
 
 	// get key and store in buffer
-	char *tok = strtok(NULL, "$");
+	tok = strtok(NULL, "$");
 	if (tok == NULL) {
 		goto tokerr;
 	}
@@ -97,7 +97,7 @@ bool split_shadowed_pwd(char *shadowed_pwd, char **out) {
 	return true;
 
 tokerr:
-		pam_mprintf("Error reading part of shadowed pwd\n");
+		pam_mprintf_d("Error reading part of shadowed pwd\n");
 		free(out[2]);
 		free(out[1]);
 		free(out[0]);

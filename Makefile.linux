@@ -5,7 +5,7 @@ LCURL_LDFLAGS=$(shell curl-config --libs)
 LDFLAGS=$(LCURL_LDFLAGS) $(LQR_LDFLAGS) -lpam_misc -lpam -lcrypt -lnsl -lblytz -lssh
 LIBBLYTZ_PATH=/home/rod/projects/blytz/libblytz
 CFLAGS=-Wall $(LCURL_CFLAGS) $(LQR_CFLAGS) -I./include -I$(LIBBLYTZ_PATH)
-CC=g++
+CC=c++
 
 all: pam_blytz.so
 

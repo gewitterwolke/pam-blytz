@@ -12,10 +12,3 @@ int pam_mprintf_d(const char *fmt, ...);
 int pam_printf(int style, const char *fmt, va_list ap);
 int pam_printf(const char *fmt, va_list ap);
 int pam_mprintf(int style, const char *fmt, ...);
-
-//void writeUTF8_margin(int realwidth, int use_ansi, std::string& buf);
-
-//int writeUTF8(QRcode *qrcode, int use_ansi);
-
-//#define MARGIN 4
-//static int margin = MARGIN;

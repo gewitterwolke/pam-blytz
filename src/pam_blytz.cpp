@@ -30,7 +30,6 @@
 #include <security/pam_misc.h>
 #include <security/pam_ext.h>
 #include <shadow.h>
-//#include <pwauth.h>
 #endif
 
 #include <libssh/libssh.h>
@@ -53,6 +52,7 @@
 #include <blytz-api.h>
 #include <blytz-rest.h>
 #include <blytz-qr.h>
+
 using namespace blytz;
 
 // FIXME: get rid of .eof()s
@@ -218,7 +218,6 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 
 	cnt = 0;
 
-	//while (body.find("false") != std::string::npos) {
 	while (!has_credentials()) {
 
 		pam_mprintf_d("No credentials yet");
@@ -287,9 +286,6 @@ std::string parse_key(std::string body) {
 	// erase response body
 	body.clear();
 	
-	// replace '!' by '\n'
-	// key = replace( key, '!', '\n');
-
 	return key;
 }
 
@@ -384,11 +380,6 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 	int retval;
 	const char *pass, *user, *realpw, *prompt;
 
-#ifdef USE_SHADOW
-    struct spwd *spwd;
-    struct spwd *getspnam();
-#endif
-
 	if (openpam_get_option(pamh, PAM_OPT_AUTH_AS_SELF)) {
 		user = getlogin();
 	} else {
@@ -398,12 +389,6 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 	}
 
 	pwd = getpwnam(user);
-
-#ifdef USE_SHADOW
-	spwd = getspnam(user);
-	if (spwd)
-		pw->pw_passwd = spwd->sp_pwdp;
-#endif
 
 	pam_mprintf_d( "Got user: %s", user);
 	PAM_LOG("Got user: %s", user);
@@ -444,36 +429,9 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 	pam_mprintf_d( "got password");
 	PAM_LOG("Got password");
 
-#ifdef USE_SHADOW
-	char *tks = strtok(pw->pw_passwd, "$");
-	char htype[16];
-	strncpy(htype, tks, 16);
-	pam_mprintf_d("type: %s\n", htype);
-
-	tks = strtok(NULL, "$");
-	char salt[128];
-	salt[0] = '$';
-	salt[1] = '6';
-	salt[2] = '$';
-	strncpy(salt + 3, tks, 128);
-	pam_mprintf_d("salt: %s\n", salt);
-
-	tks = strtok(NULL, "$");
-	char pwd[1024];
-	strncpy(pwd, tks, 1024);
-	pam_mprintf_d("pwd2: %s\n", pwd);
-#endif
-
-#ifdef USE_SHADOW
-	char *epwd = crypt(passwd, salt);
-	if (strcmp(epwd, realpw) == 0) {
-		return PAM_SUCCESS;
-	}
-#else
 	if (strcmp(crypt(pass, realpw), realpw) == 0) {
 		return (PAM_SUCCESS);
 	}
-#endif
 
 	PAM_VERBOSE_ERROR("UNIX authentication refused");
 	return (PAM_AUTH_ERR);
@@ -488,21 +446,14 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 	const char *pass, *user, *realpw, *prompt;
 
 	struct spwd *spwd;
-	//struct spwd *getspnam();
 
-//	/*
-//	if (openpam_get_option(pamh, PAM_OPT_AUTH_AS_SELF)) {
-//		user = getlogin();
-//	} else {
-//	*/
 	retval = pam_get_user(pamh, &user, NULL);
 	if (retval != PAM_SUCCESS)
 		return (retval);
-	//}
 
 	pwd = getpwnam(user);
-	//spwd = getspnam(user);
 	spwd = getspnam(user);
+
 	if (spwd)
 		pwd->pw_passwd = spwd->sp_pwdp;
 
@@ -514,24 +465,13 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 		realpw = pwd->pw_passwd;
 		pam_mprintf_d( "realpw: %s", realpw);
 
-		/*
-		if (realpw[0] == '\0') {
-			if (!(flags & PAM_DISALLOW_NULL_AUTHTOK) &&
-			    pam_get_option(pamh, PAM_OPT_NULLOK))
-				return (PAM_SUCCESS);
-			realpw = "*";
-		}
-			*/
-
 	} else {
 		return PAM_SYSTEM_ERR;
 	}
 
-	//prompt = login_getcapstr(lc, "passwd_prompt", NULL, NULL);
-	prompt = "Prompt: ";
+	prompt = "Password for : ";
 	pam_mprintf_d( "get_authtok");
 	retval = pam_get_authtok(pamh, PAM_AUTHTOK, &pass, prompt);
-	//login_close(lc);
 
 	if (retval != PAM_SUCCESS) {
 		pam_mprintf_d( "hehe noe");
@@ -563,7 +503,6 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 	int sz = strlen(bla);
 	bla[sz] = '$';
 	bla[sz + 1] = '\0';
-	//strcpy(bla + strlen(bla), "$");
 	strcpy(bla + strlen(bla), pwdstr);
 
 	char *epwd = crypt(pass, salt);
@@ -575,7 +514,6 @@ int pam_unix_auth(pam_handle_t *pamh, int flags,
 		return PAM_SUCCESS;
 	}
 
-	//PAM_VERBOSE_ERROR("UNIX authentication refused");
 	return (PAM_AUTH_ERR);
 }
 
@@ -737,40 +675,10 @@ std::string blytz_get_key() {
 
 	std::string keyfile = get_sshdir() + "blytzkey";
 
-	/*
-	std::string token;
-
-	std::ifstream blytzfile;
-	blytzfile.open(keyfile.c_str());
-
-	if (blytzfile.is_open()) {
-
-		std::string line;
-		while (!blytzfile.eof()) {
-			std::getline(blytzfile, line);
-
-			// add a '!' except for the last (empty) line
-			if (!line.empty())
-				line += '!';
-			token.append(line);
-		}
-
-		// delete '!' at end of key
-		token.erase(token.length() - 1);
-		blytzfile.close();
-	}
-	*/
-
 	// read the whole keyfile into a string
 	std::ifstream in(keyfile.c_str());
 	std::string keyfile_str((std::istreambuf_iterator<char>(in)), 
 			std::istreambuf_iterator<char>());
-
-	// import the key
-	// int res;
-	// ssh_key pkey;
-	// res = ssh_pki_import_privkey_base64( keyfile_str.c_str(), 
-	//		NULL, NULL, NULL, &pkey);
 
 	pam_mprintf_d("got key: %s\n", keyfile_str.c_str());
 	return keyfile_str;
@@ -814,8 +722,4 @@ pam_sm_chauthtok(pam_handle_t *pamh, int flags,
 
 	return (PAM_SERVICE_ERR);
 }
-
-//#ifdef PAM_MODULE_ENTRY
-//PAM_MODULE_ENTRY("pam_unix");
-//#endif
 

@@ -2,3 +2,6 @@
 *~
 *.o
 *.so
+CMakeFiles
+CMakeCache.txt
+*.cmake
